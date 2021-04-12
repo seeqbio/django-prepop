@@ -30,15 +30,16 @@ class AbstractStorageFixture(ABC):
 
     External API, for use by fixture clients:
 
-        * exists()          boolean, whether the fixture already exists in storage
         * load()            puts the fixture in storage, if not exists()
         * unload()          removes (what seems like) the fixture from storage, if exists()
 
     Internal API, for use by fixture API and fixture classes.
 
+        * exists()          abstract
         * create()          abstract
         * delete()          abstract
-        * resolved          boolean, True if resolve attempted and successful
+        * resolvable        boolean, True if resolve attempted and all
+                            dependencies are resolvable.
         * resolved_data     contents of self.data after data resolution
                             it might contain instances of UnresolvableFixture.
 
@@ -55,22 +56,22 @@ class AbstractStorageFixture(ABC):
         """Loads this fixture into storage unless it already exists. Raises
         UnresolvedFixtureError if the fixture's data cannot be resolved.
         """
-        self._resolve_data()
+        self.attempt_data_resolution()
 
-        if self.resolved and self.exists():
+        if self.exists():
             logger.debug('Fixture already exists, nothing to load: %s' % self)
             return
 
-        if not self.resolved:
+        if not self.resolvable:
             raise UnresolvedFixtureError(self._unresolvable_dep)
 
         self.create()
         logger.info('Loaded fixture: %s' % self)
 
     def unload(self):
-        self._resolve_data()
+        self.attempt_data_resolution()
 
-        if not self.resolved or not self.exists():
+        if not self.exists():
             logger.debug('Fixture does not exist, nothing to unload: %s' % self)
             return
 
@@ -83,31 +84,41 @@ class AbstractStorageFixture(ABC):
         return UnresolvableFixture(self)
 
     @property
-    def resolved(self):
-        if not hasattr(self, '_resolved_data'):
-            # we haven't even tried to perform data resolution yet.
-            return False
+    def resolved_data(self):
+        self.attempt_data_resolution()
+        return self._resolved_data
+
+    @property
+    def resolvable(self):
+        if not hasattr(self, '_unresolvable_dep'):
+            raise FixtureProgrammingError(
+                'Trying to check if %s is resolvable before '
+                'data resolution is attempted.' % self
+            )
 
         return self._unresolvable_dep is None
 
-    @property
-    def resolved_data(self):
-        if not hasattr(self, '_resolved_data'):
-            self._resolve_data()
-        return self._resolved_data
-
     # ========= Private helpers ========
     def _resolve_data(self):
-        """Data resolution algorithm, sets instance attributes and returns nothing."""
+        """Data resolution algorithm, sets instance attributes and returns
+        nothing. We typically only need to resolve data only once but the
+        timing depends on the context. This function is *not* responsible for
+
+            * resolving data at the right time
+            * avoiding a re-resolution if it has already happened
+
+        Instead of calling this function directly, use either of the following:
+
+            * (happy path) directly access the resolve_data attribute.
+            * (delicate path, not for clients) call attempt_data_resolution()
+        """
         self._resolved_data = self._resolve_fixtures_in_data(self.data)
         self._unresolvable_dep = self.find_unresolvable_dependency(self._resolved_data)
-
-        if self._unresolvable_dep is not None:
+        if self._unresolvable_dep:
             # Field resolvers expect properly resolved values, don't bother
             # with them if we have unresolvable dependencies
             return
 
-        # apply custom field resolvers declared by subclasses
         for field, resolver in self._get_field_resolvers().items():
             if field in self._resolved_data:
                 self._resolved_data[field] = resolver(self._resolved_data[field])
@@ -158,18 +169,47 @@ class AbstractStorageFixture(ABC):
         except UnresolvedFixtureError as e:
             return e.args[0]
 
+    def attempt_data_resolution(self):
+        """Ensures that data resolution has already been attempted. Nuances:
+
+            * It does *not* re-resolve if resolution has already happened.
+            * It's ok if there remain unresolvable dependencies.
+
+        """
+        if not hasattr(self, '_resolved_data'):
+            self._resolve_data()
 
     # ========= Abstract Methods, Subclass API ===========
     @abstractmethod
+    def exists(self):
+        """Returns a boolean and does *not* assume that this fixture is resolvable.
+
+        Example scenario when your fixture maybe unresolvable and you have to
+        handle it in your exists():
+
+            * Job -> Patient is a nullable FK.
+            * A Patient and its Job are both loaded via fixtures.
+            * The Patient is removed manually.
+            * The Job now has a null FK to Patient.
+            * The Job fixture is unresolvable but it can still be identified in db.
+            * Your exists() implementation is the last chance to not crash.
+        """
+        pass
+
+    @abstractmethod
     def create(self):
+        """Creates this fixture, wrapped by load(). This method can assume that
+        this fixture is resolvable."""
         pass
 
     @abstractmethod
     def delete(self):
-        pass
+        """Deletes this fixture, wrapped by unload(). This method can *not*
+        assume that this fixture is resolvable.
 
-    @abstractmethod
-    def exists(self):
+        See exists() for an example scenario when .delete() of an unresolvable
+        fixture maybe called.
+        """
         pass
 
 
@@ -193,7 +233,14 @@ class ModelFixture(AbstractStorageFixture):
         )
 
     def existing_object(self):
-        # returns the current instance as per db or None if it does not exist
+        """Returns the existing instance of this model in db. Returns None if
+        and only if this fixture does not exist in db.
+
+        Important: we cannot insist on self.resolvable when working with
+        model fixtures. A common scenario to support is when *some* of a
+        fixture's data is not resolvable but its identifying fields are
+        resolvable. In such cases, if we insist on self.resolvable, we "won't
+        see" that the fixture exists in db."""
         model_kw = {k: self.resolved_data[k] for k in self.identifying_fields}
 
         if self.find_unresolvable_dependency(model_kw):

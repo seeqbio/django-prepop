@@ -39,11 +39,11 @@ def unload_fixtures(fixtures):
     """Unloads a sequence of fixtures in a transaction. Returns an integer retcode."""
     assert all(isinstance(f, AbstractStorageFixture) for f in fixtures)
 
-    # Important: trigger data resolution of all fixtures before starting to
+    # Important: trigger data resolution of all fixtures *before* starting to
     # unload. Without this we might run into unresolvable fixtures half way
     # through because we just unloaded a dependency.
     for fixture in fixtures:
-        fixture.resolved_data
+        fixture.attempt_data_resolution()
 
     for fixture in fixtures:
         fixture.unload()
