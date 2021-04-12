@@ -101,7 +101,7 @@ class AbstractStorageFixture(ABC):
     # ========= Private helpers ========
     def _resolve_data(self):
         """Data resolution algorithm, sets instance attributes and returns
-        nothing. We typically only need to resolve data only once but the
+        nothing. We typically need to resolve data only once but the
         timing depends on the context. This function is *not* responsible for
 
             * resolving data at the right time
@@ -109,8 +109,8 @@ class AbstractStorageFixture(ABC):
 
         Instead of calling this function directly, use either of the following:
 
-            * (happy path) directly access the resolve_data attribute.
-            * (delicate path, not for clients) call attempt_data_resolution()
+            * (happy path) directly access the resolved_data property.
+            * (delicate path, not for clients) call attempt_data_resolution().
         """
         self._resolved_data = self._resolve_fixtures_in_data(self.data)
         self._unresolvable_dep = self.find_unresolvable_dependency(self._resolved_data)
