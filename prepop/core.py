@@ -66,7 +66,7 @@ class AbstractStorageFixture(ABC):
             raise UnresolvedFixtureError(self._unresolvable_dep)
 
         self.create()
-        logger.info('Loaded fixture: %s' % self)
+        logger.debug('Loaded fixture: %s' % self)
 
     def unload(self):
         self.attempt_data_resolution()
@@ -76,7 +76,7 @@ class AbstractStorageFixture(ABC):
             return
 
         self.delete()
-        logger.info('Unloaded fixture: %s' % self)
+        logger.debug('Unloaded fixture: %s' % self)
 
     def resolve_self(self):
         """A fixture class must implement this if and only if it wants its
