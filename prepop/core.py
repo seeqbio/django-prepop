@@ -65,6 +65,7 @@ class AbstractStorageFixture(ABC):
         if not self.resolvable:
             raise UnresolvedFixtureError(self._unresolvable_dep)
 
+        logger.debug('Creating fixture: %s' % self)
         self.create()
         logger.debug('Loaded fixture: %s' % self)
 
