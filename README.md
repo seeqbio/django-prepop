@@ -1,4 +1,4 @@
-# Fixture API
+# Django Prepop
 
 Storage fixtures are a way to put data in storage:
 
